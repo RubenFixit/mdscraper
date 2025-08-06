@@ -20,3 +20,19 @@ class CliTests(unittest.TestCase):
         parser = create_cli_parser()
         args = parser.parse_args(['--url', 'https://example.com', '--output', 'cli_basic.md'])
         scraper_cli(**vars(args))
+
+    def test_basic_auth_cli_arguments(self):
+        """Testing the CLI with basic authentication arguments"""
+        parser = create_cli_parser()
+        args = parser.parse_args([
+            '--url', 'https://example.com',
+            '--basic-auth-username', 'testuser',
+            '--basic-auth-password', 'testpass',
+            '--output', 'auth_test.md'
+        ])
+        
+        # Verify that the arguments were parsed correctly
+        self.assertEqual(args.basic_auth_username, 'testuser')
+        self.assertEqual(args.basic_auth_password, 'testpass')
+        self.assertEqual(args.url, 'https://example.com')
+        self.assertEqual(args.output, 'auth_test.md')

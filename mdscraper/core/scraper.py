@@ -85,8 +85,8 @@ class MdScraper():
         """
         DefaultOptions is a configuration class that provides a robust method for setting
         default options for a web scraper. It includes various attributes to control the
-        scraper's behavior, such as debugging, verbosity, output settings, and content
-        extraction preferences.
+        scraper's behavior, such as debugging, verbosity, output settings, content
+        extraction preferences, and basic authentication credentials.
         """
         debug = False
         verbose = 0
@@ -101,6 +101,10 @@ class MdScraper():
         root_url = ''
         exclude_pages = None
         exclude_selectors = None
+        
+        # Basic authentication options
+        basic_auth_username = None
+        basic_auth_password = None
 
         # Used to find the main content container by div class or id names
         custom_content_names = None
@@ -256,9 +260,16 @@ class MdScraper():
             or None if an error occurs during the request.
         """
         headers = {'User-Agent': self.options['user_agent']}
+        
+        # Prepare authentication if provided
+        auth = None
+        if self.options['basic_auth_username'] and self.options['basic_auth_password']:
+            auth = (self.options['basic_auth_username'], self.options['basic_auth_password'])
+            if self.options['debug']:
+                print(f"Using basic authentication for user: {self.options['basic_auth_username']}")
 
         try:
-            response = requests.get(url, headers=headers, timeout=self.options['requests_timeout'])
+            response = requests.get(url, headers=headers, auth=auth, timeout=self.options['requests_timeout'])
             response.raise_for_status()  # Raise an exception for HTTP errors
             response.encoding = 'utf-8'  # Ensure correct encoding
         except Exception as err:
