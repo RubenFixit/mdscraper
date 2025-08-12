@@ -42,6 +42,9 @@ def create_cli_parser():
                         help='Username for basic authentication')
     parser.add_argument('--basic-auth-password', metavar='PASSWORD',
                         help='Password for basic authentication')
+    parser.add_argument('--login-url', metavar='URL',
+                        help='Login page URL for session-based authentication '
+                             '(requires username/password)')
     parser.add_argument('--extra-heading-space', metavar='LEVELS', type=str, default=None,
                         help='Add additional newlines before specified heading levels (e.g., "1,2,3" for h1,h2,h3 or "all" for all headings)')
     parser.add_argument('--settings',

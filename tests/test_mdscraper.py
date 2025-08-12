@@ -79,13 +79,15 @@ class TestMDScraper(unittest.TestCase):
         # Reset MD Scraper options to default
         self.mds.options = self.mds.get_default_options()
 
-    @patch('requests.get')
+    @patch('requests.Session.get')
     def test_fetch_and_convert_to_markdown(self, mock_get):
         """Test fetching and converting HTML to Markdown"""
         # Setup the mock
         mock_response = MagicMock()
         mock_response.text = self.sample_html
         mock_response.encoding = 'utf-8'
+        mock_response.status_code = 200
+        mock_response.raise_for_status.return_value = None
         mock_get.return_value = mock_response
 
         # Test basic conversion
@@ -243,10 +245,12 @@ class TestMDScraper(unittest.TestCase):
         """
 
         # Mock the request
-        with patch('requests.get') as mock_get:
+        with patch('requests.Session.get') as mock_get:
             mock_response = MagicMock()
             mock_response.text = html_with_images
             mock_response.encoding = 'utf-8'
+            mock_response.status_code = 200
+            mock_response.raise_for_status.return_value = None
             mock_get.return_value = mock_response
 
             # Test with image removal
@@ -273,13 +277,15 @@ class TestMDScraper(unittest.TestCase):
         # Reset MD Scraper options to default
         self.mds.options = self.mds.get_default_options()
 
-    @patch('requests.get')
+    @patch('requests.Session.get')
     def test_fetch_content(self, mock_get):
         """Test fetching content from a URL without downloading"""
         # Setup the mock
         mock_response = MagicMock()
         mock_response.text = self.sample_html
         mock_response.encoding = 'utf-8'
+        mock_response.status_code = 200
+        mock_response.raise_for_status.return_value = None
         mock_get.return_value = mock_response
 
         # Test basic content fetching

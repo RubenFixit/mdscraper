@@ -9,7 +9,7 @@ import shutil
 from unittest.mock import patch, MagicMock
 import requests
 
-from mdscraper.core.scraper import MdScraper
+from mdscraper.core.scraper import MdScraper, AuthenticationError
 
 # Add the parent directory to the Python path for proper imports
 sys.path.insert(0, os.path.abspath(os.path.dirname(os.path.dirname(__file__))))
@@ -56,13 +56,14 @@ class TestBasicAuthentication(unittest.TestCase):
         self.assertEqual(self.mds.options['basic_auth_username'], 'updateduser')
         self.assertEqual(self.mds.options['basic_auth_password'], 'updatedpass')
 
-    @patch('requests.get')
+    @patch('requests.Session.get')
     def test_fetch_webpage_with_basic_auth(self, mock_get):
-        """Test that fetch_webpage passes auth credentials to requests.get"""
+        """Test that fetch_webpage passes auth credentials to session.get"""
         # Setup mock response
         mock_response = MagicMock()
         mock_response.text = '<html><body><h1>Test</h1></body></html>'
         mock_response.raise_for_status.return_value = None
+        mock_response.status_code = 200
         mock_get.return_value = mock_response
         
         # Configure scraper with basic auth
@@ -74,7 +75,7 @@ class TestBasicAuthentication(unittest.TestCase):
         # Call fetch_webpage
         result = mds_with_auth.fetch_webpage('https://example.com')
         
-        # Verify requests.get was called with auth parameter
+        # Verify session.get was called with auth parameter
         mock_get.assert_called_once()
         call_args = mock_get.call_args
         
@@ -89,19 +90,20 @@ class TestBasicAuthentication(unittest.TestCase):
         # Verify result is a BeautifulSoup object
         self.assertIsNotNone(result)
 
-    @patch('requests.get')
+    @patch('requests.Session.get')
     def test_fetch_webpage_without_basic_auth(self, mock_get):
         """Test that fetch_webpage doesn't pass auth when not configured"""
         # Setup mock response
         mock_response = MagicMock()
         mock_response.text = '<html><body><h1>Test</h1></body></html>'
         mock_response.raise_for_status.return_value = None
+        mock_response.status_code = 200
         mock_get.return_value = mock_response
         
         # Call fetch_webpage without auth
         result = self.mds.fetch_webpage('https://example.com')
         
-        # Verify requests.get was called without auth parameter
+        # Verify session.get was called without auth parameter
         mock_get.assert_called_once()
         call_args = mock_get.call_args
         
@@ -112,13 +114,14 @@ class TestBasicAuthentication(unittest.TestCase):
         # Verify result is a BeautifulSoup object
         self.assertIsNotNone(result)
 
-    @patch('requests.get')
+    @patch('requests.Session.get')
     def test_fetch_webpage_partial_auth_credentials(self, mock_get):
         """Test that auth is not used when only username or password is provided"""
         # Setup mock response
         mock_response = MagicMock()
         mock_response.text = '<html><body><h1>Test</h1></body></html>'
         mock_response.raise_for_status.return_value = None
+        mock_response.status_code = 200
         mock_get.return_value = mock_response
         
         # Test with only username
@@ -126,7 +129,7 @@ class TestBasicAuthentication(unittest.TestCase):
         mds_username_only.fetch_webpage('https://example.com')
         
         call_args = mock_get.call_args
-        auth_param = call_args.kwargs.get('auth')
+        auth_param = call_args.kwargs.get('auth') if call_args else None
         self.assertIsNone(auth_param)
         
         # Reset mock
@@ -137,7 +140,7 @@ class TestBasicAuthentication(unittest.TestCase):
         mds_password_only.fetch_webpage('https://example.com')
         
         call_args = mock_get.call_args
-        auth_param = call_args.kwargs.get('auth')
+        auth_param = call_args.kwargs.get('auth') if call_args else None
         self.assertIsNone(auth_param)
 
     def test_real_basic_auth_site(self):
@@ -197,6 +200,69 @@ class TestBasicAuthentication(unittest.TestCase):
         self.assertIn('basic_auth_password', default_options)
         self.assertIsNone(default_options['basic_auth_username'])
         self.assertIsNone(default_options['basic_auth_password'])
+
+    def test_authentication_error_raised(self):
+        """Test that authentication failures raise AuthenticationError exceptions."""
+        
+        # Create scraper with invalid credentials
+        scraper = MdScraper(
+            login_url="https://httpbin.org/basic-auth/user/pass",
+            basic_auth_username="wrong_user",
+            basic_auth_password="wrong_pass",
+            debug=True
+        )
+        
+        with self.assertRaises(AuthenticationError):
+            scraper.perform_login()
+
+    def test_process_single_url_auth_fail(self):
+        """Test that process_single_url raises authentication errors."""
+        
+        scraper = MdScraper(
+            login_url="https://httpbin.org/basic-auth/user/pass",
+            basic_auth_username="wrong_user",
+            basic_auth_password="wrong_pass",
+            verbose=1
+        )
+        
+        # Should raise AuthenticationError for authentication failure
+        with self.assertRaises(AuthenticationError):
+            scraper.process_single_url("https://httpbin.org/basic-auth/user/pass")
+
+    def test_process_site_url_auth_fail(self):
+        """Test that process_site_url raises authentication errors."""
+        
+        scraper = MdScraper(
+            login_url="https://httpbin.org/basic-auth/user/pass",
+            basic_auth_username="wrong_user",
+            basic_auth_password="wrong_pass"
+        )
+        
+        with self.assertRaises(AuthenticationError):
+            scraper.process_site_url("https://httpbin.org/basic-auth/user/pass")
+
+    def test_fetch_webpage_401_error(self):
+        """Test that fetch_webpage raises AuthenticationError for 401 responses."""
+        
+        with patch.object(self.mds.session, 'get') as mock_get:
+            mock_response = MagicMock()
+            mock_response.status_code = 401
+            mock_get.return_value = mock_response
+            
+            with self.assertRaises(AuthenticationError) as context:
+                self.mds.fetch_webpage("https://example.com/protected")
+            
+            self.assertIn("HTTP 401 Unauthorized", str(context.exception))
+
+    def test_no_credentials_configured_error(self):
+        """Test that perform_login raises error when no credentials are configured."""
+        
+        scraper = MdScraper(login_url="https://example.com/login")
+        
+        with self.assertRaises(AuthenticationError) as context:
+            scraper.perform_login()
+        
+        self.assertIn("No username/password configured", str(context.exception))
 
 
 if __name__ == '__main__':

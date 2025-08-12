@@ -32,6 +32,12 @@ from mdscraper.core.utils import (load_config_file,
                                  get_size_kb,
                                  clean_text)
 
+class AuthenticationError(Exception):
+    """Exception raised when authentication fails."""
+    def __init__(self, message="Authentication failed"):
+        self.message = message
+        super().__init__(self.message)
+
 class MdScraper():
     """
     MdScraper: A class for scraping webpages and converting them into Markdown files.
@@ -105,6 +111,12 @@ class MdScraper():
         # Basic authentication options
         basic_auth_username = None
         basic_auth_password = None
+        
+        # Login page options for session-based authentication
+        login_url = None
+        login_username_field = 'username'
+        login_password_field = 'password'
+        login_form_selector = 'form'
 
         # Used to find the main content container by div class or id names
         custom_content_names = None
@@ -134,6 +146,11 @@ class MdScraper():
         # the options dictionary doesn't have to be extended.
         self.options = _todict(self.DefaultOptions)
         self.options.update(_todict(self.Options))
+        
+        # Initialize session for maintaining login state
+        self.session = requests.Session()
+        self._login_attempted = False
+        
         self.set_options(options)
 
     def set_options(self, options):
@@ -248,9 +265,144 @@ class MdScraper():
 
         return url
 
+    def perform_login(self):
+        """
+        Performs login to establish a session if login_url is configured.
+        Tries basic authentication first, then falls back to form-based login.
+        
+        Returns:
+            bool: True if login was successful or not needed.
+            
+        Raises:
+            AuthenticationError: If login is required but fails for any reason.
+        """
+        if not self.options['login_url']:
+            if self.options['debug']:
+                print("No login URL configured, skipping login")
+            return True
+            
+        if not (self.options['basic_auth_username'] and self.options['basic_auth_password']):
+            if self.options['debug']:
+                print("No username/password configured for login")
+            raise AuthenticationError("No username/password configured for login")
+            
+        login_url = self.options['login_url']
+        username = self.options['basic_auth_username']
+        password = self.options['basic_auth_password']
+        
+        if self.options['debug']:
+            print(f"Attempting to login at: {login_url}")
+            
+        try:
+            # First, try accessing the login page without authentication
+            headers = {'User-Agent': self.options['user_agent']}
+            
+            response = self.session.get(login_url, headers=headers, timeout=self.options['requests_timeout'])
+            
+            if self.options['debug']:
+                print(f"Login page status code: {response.status_code}")
+
+            # If we get a non-2xx status, the server requires basic auth
+            if response.status_code not in range(200, 300):
+                if self.options['debug']:
+                    print(f"Got {response.status_code}, trying basic authentication...")
+
+                auth = (username, password)
+                response = self.session.get(login_url, headers=headers, auth=auth, timeout=self.options['requests_timeout'])
+                
+                if self.options['debug']:
+                    print(f"Basic auth response status code: {response.status_code}")
+                    print(f"Session cookies: {list(self.session.cookies.keys())}")
+                
+                # Check if basic auth was successful (2xx status means success)
+                if response.status_code in range(200, 300):
+                    if self.options['debug']:
+                        print(f"Basic authentication successful - status code: {response.status_code}")
+                    return True
+                else:
+                    if self.options['debug']:
+                        print(f"Basic authentication failed - status code: {response.status_code}")
+                    raise AuthenticationError(f"Basic authentication failed - status code: {response.status_code}")
+            
+            # If we get 2xx, try form-based login
+            else:
+                if self.options['debug']:
+                    print("Got successful response, trying form-based login...")
+                
+                response.raise_for_status()
+                
+                # Parse the login page to find the form
+                soup = BeautifulSoup(response.text, 'html.parser')
+                form = soup.select_one(self.options['login_form_selector'])
+                
+                if not form:
+                    print(f"Could not find login form with selector: {self.options['login_form_selector']}")
+                    raise AuthenticationError(f"Could not find login form with selector: {self.options['login_form_selector']}")
+                    
+                # Get the form action URL
+                form_action = form.get('action', '')
+                if form_action.startswith('/'):
+                    # Relative URL, make it absolute
+                    from urllib.parse import urljoin
+                    form_url = urljoin(login_url, form_action)
+                elif form_action.startswith('http'):
+                    # Absolute URL
+                    form_url = form_action
+                else:
+                    # No action or relative to current page
+                    form_url = login_url
+                    
+                # Prepare login data
+                login_data = {
+                    self.options['login_username_field']: username,
+                    self.options['login_password_field']: password
+                }
+                
+                # Add any hidden form fields
+                for hidden_input in form.find_all('input', type='hidden'):
+                    name = hidden_input.get('name')
+                    value = hidden_input.get('value', '')
+                    if name:
+                        login_data[name] = value
+                        
+                if self.options['debug']:
+                    print(f"Submitting login form to: {form_url}")
+                    print(f"Form data keys: {list(login_data.keys())}")
+                
+                # Submit the login form
+                login_response = self.session.post(
+                    form_url,
+                    data=login_data,
+                    headers=headers,
+                    timeout=self.options['requests_timeout'],
+                    allow_redirects=True
+                )
+                login_response.raise_for_status()
+                
+                # Check if login was successful (simple heuristic - no error messages)
+                if 'error' in login_response.text.lower() or 'invalid' in login_response.text.lower():
+                    print("Login may have failed - found error indicators in response")
+                    if self.options['debug']:
+                        print(f"Response status: {login_response.status_code}")
+                        print(f"Response URL: {login_response.url}")
+                    raise AuthenticationError("Form-based login failed - found error indicators in response")
+                    
+                if self.options['debug']:
+                    print(f"Form-based login successful - status code: {login_response.status_code}")
+                    print(f"Session cookies: {list(self.session.cookies.keys())}")
+                    
+                return True
+            
+        except Exception as err:
+            if isinstance(err, AuthenticationError):
+                raise  # Re-raise authentication errors
+            print(f"Error during login: {err}")
+            raise AuthenticationError(f"Login failed due to error: {err}") from err
+
     def fetch_webpage(self, url):
         """
         Fetches the content of a webpage and parses it into a BeautifulSoup object.
+        Uses the session to maintain login state if login was performed.
 
         Args:
             url (str): The URL of the webpage to fetch.
@@ -258,20 +410,33 @@ class MdScraper():
         Returns:
             BeautifulSoup: A BeautifulSoup object containing the parsed HTML content of the webpage,
             or None if an error occurs during the request.
+            
+        Raises:
+            AuthenticationError: If the request fails with a 401 Unauthorized status.
         """
         headers = {'User-Agent': self.options['user_agent']}
         
-        # Prepare authentication if provided
+        # Prepare authentication if provided (for non-session auth)
         auth = None
         if self.options['basic_auth_username'] and self.options['basic_auth_password']:
-            auth = (self.options['basic_auth_username'], self.options['basic_auth_password'])
-            if self.options['debug']:
-                print(f"Using basic authentication for user: {self.options['basic_auth_username']}")
+            # Only use basic auth if we're not using login_url (session-based auth)
+            if not self.options['login_url']:
+                auth = (self.options['basic_auth_username'], self.options['basic_auth_password'])
+                if self.options['debug']:
+                    print(f"Using basic authentication for user: {self.options['basic_auth_username']}")
 
         try:
-            response = requests.get(url, headers=headers, auth=auth, timeout=self.options['requests_timeout'])
-            response.raise_for_status()  # Raise an exception for HTTP errors
+            # Use session for all requests to maintain login state
+            response = self.session.get(url, headers=headers, auth=auth, timeout=self.options['requests_timeout'])
+            
+            # Check for authentication errors specifically
+            if response.status_code == 401:
+                raise AuthenticationError(f"Authentication failed for URL: {url} (HTTP 401 Unauthorized)")
+            
+            response.raise_for_status()  # Raise an exception for other HTTP errors
             response.encoding = 'utf-8'  # Ensure correct encoding
+        except AuthenticationError:
+            raise  # Re-raise authentication errors
         except Exception as err:
             print(f"Error fetching URL: {err}")
             return None
@@ -433,6 +598,9 @@ class MdScraper():
 
         Returns:
             str or None: The content converted to markdown, or None if the conversion fails.
+            
+        Raises:
+            AuthenticationError: If authentication is required but fails.
         """
         content, title, _ = self._fetch_content(url)
 
@@ -446,13 +614,24 @@ class MdScraper():
     def _fetch_content(self, url):
         """
         Internal function to fetch and process content from a URL.
+        Ensures login is performed if needed before fetching content.
 
         Args:
             url (str): URL to fetch
 
         Returns:
             tuple: (content, title, soup) or (None, None, None) if fetching fails
+            
+        Raises:
+            AuthenticationError: If login is required but fails.
         """
+        # Ensure login is performed if configured
+        if self.options['login_url'] and not self._login_attempted:
+            if self.options['debug']:
+                print("Performing login before fetching content")
+            self.perform_login()  # This will raise AuthenticationError if it fails
+            self._login_attempted = True
+        
         soup = self.fetch_webpage(url)
         content = self.extract_page_content(soup)
         if not content:
@@ -786,8 +965,16 @@ class MdScraper():
             site_url (str): The URL of the website to process.
             output_dir (str, optional): The directory where processed data
                 will be saved. Defaults to None.
+                
+        Raises:
+            AuthenticationError: If authentication is required but fails.
         """
-        soup = self.fetch_webpage(site_url)
+        try:
+            soup = self.fetch_webpage(site_url)
+        except AuthenticationError:
+            print(f"Authentication failed for site URL: {site_url}")
+            raise  # Re-raise to abort the entire operation
+            
         content = self.extract_page_content(soup)
 
         parsed_url = urlparse(site_url)
@@ -807,6 +994,9 @@ class MdScraper():
 
         Returns:
             bool: True if the URL was successfully processed and saved, False otherwise.
+            
+        Raises:
+            AuthenticationError: If authentication is required but fails.
         """
         output_dir = self.options['outdir']
 
@@ -816,7 +1006,13 @@ class MdScraper():
         if self.options['verbose'] > 0:
             print(f"Fetching and parsing {url}...")
 
-        markdown = self.fetch_content(url)
+        try:
+            markdown = self.fetch_content(url)
+        except AuthenticationError:
+            # Re-raise authentication errors instead of catching them
+            # This allows callers to handle authentication failures appropriately
+            raise
+        
         if markdown:
             if output_file in ('%TITLE', '%URL'):
                 if output_file == '%TITLE':
