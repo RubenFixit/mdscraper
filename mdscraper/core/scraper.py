@@ -102,21 +102,25 @@ class MdScraper():
         prepend_source_link = False
         outdir = ''
         output = '%TITLE'
-        requests_timeout = 60
+        requests_timeout = 10
         user_agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         root_url = ''
         exclude_pages = None
         exclude_selectors = None
         
-        # Basic authentication options
-        basic_auth_username = None
-        basic_auth_password = None
+        # Authentication options
+        username = None
+        password = None
         
         # Login page options for session-based authentication
         login_url = None
         login_username_field = 'username'
         login_password_field = 'password'
         login_form_selector = 'form'
+        
+        # Custom markdown insertions
+        insert_after_title = None
+        insert_at_top = None
 
         # Used to find the main content container by div class or id names
         custom_content_names = None
@@ -281,14 +285,14 @@ class MdScraper():
                 print("No login URL configured, skipping login")
             return True
             
-        if not (self.options['basic_auth_username'] and self.options['basic_auth_password']):
+        if not (self.options['username'] and self.options['password']):
             if self.options['debug']:
                 print("No username/password configured for login")
             raise AuthenticationError("No username/password configured for login")
             
         login_url = self.options['login_url']
-        username = self.options['basic_auth_username']
-        password = self.options['basic_auth_password']
+        username = self.options['username']
+        password = self.options['password']
         
         if self.options['debug']:
             print(f"Attempting to login at: {login_url}")
@@ -401,7 +405,7 @@ class MdScraper():
 
     def fetch_webpage(self, url):
         """
-        Fetches the content of a webpage and parses it into a BeautifulSoup object.
+        Fetches the content of a webpage and returns it as a BeautifulSoup object.
         Uses the session to maintain login state if login was performed.
 
         Args:
@@ -414,16 +418,37 @@ class MdScraper():
         Raises:
             AuthenticationError: If the request fails with a 401 Unauthorized status.
         """
+        response = self.session_get(url)
+        if response is None:
+            return None
+        return BeautifulSoup(response.text, 'html.parser')
+
+    def session_get(self, url):
+        """
+        Gets the content of a url using sessions to maintain login state if login was performed.
+
+        Args:
+            url (str): The URL of the webpage to fetch.
+
+        Returns:
+            requests.Response: The response object containing the content of the webpage.
+
+        Raises:
+            Exception: If the request fails for any reason other than authentication.
+            AuthenticationError: If the request fails with a 401 Unauthorized status.
+        """
         headers = {'User-Agent': self.options['user_agent']}
         
-        # Prepare authentication if provided (for non-session auth)
         auth = None
-        if self.options['basic_auth_username'] and self.options['basic_auth_password']:
-            # Only use basic auth if we're not using login_url (session-based auth)
-            if not self.options['login_url']:
-                auth = (self.options['basic_auth_username'], self.options['basic_auth_password'])
-                if self.options['debug']:
-                    print(f"Using basic authentication for user: {self.options['basic_auth_username']}")
+        # Perform session login if configured
+        if self.options['login_url']:
+            if not self._login_attempted:
+                self.perform_login()  # This sets session cookies
+                self._login_attempted = True
+        else:
+            # Only use basic auth if NOT using session-based auth
+            if (self.options['username'] and self.options['password']):
+                auth = (self.options['username'], self.options['password'])
 
         try:
             # Use session for all requests to maintain login state
@@ -441,7 +466,7 @@ class MdScraper():
             print(f"Error fetching URL: {err}")
             return None
 
-        return BeautifulSoup(response.text, 'html.parser')
+        return response
 
     def add_newlines_before_headings(self, markdown):
         """
@@ -490,6 +515,53 @@ class MdScraper():
 
         return '\n'.join(result)
 
+    def insert_custom_markdown(self, markdown_content):
+        """
+        Inserts custom markdown after the first header or title.
+        
+        Args:
+            markdown_content (str): The markdown content to process
+            
+        Returns:
+            str: The content with custom markdown inserted
+        """
+        lines = markdown_content.split('\n')
+        insert_content = None
+        insert_index = None
+        
+        # Handle insert_at_top first (takes precedence)
+        if self.options.get('insert_at_top') and self.options['insert_at_top'].strip():
+            insert_content = self.options['insert_at_top']
+            insert_index = 0
+            
+            # Insert at the very top with proper spacing
+            lines.insert(0, insert_content)
+            lines.insert(1, "")
+            
+            return '\n'.join(lines)
+        
+        # Handle insert_after_title if insert_at_top is not set
+        elif self.options.get('insert_after_title') and self.options['insert_after_title'].strip():
+            # Look for first h1 (title)
+            for i, line in enumerate(lines):
+                if line.startswith('# '):
+                    insert_content = self.options['insert_after_title']
+                    insert_index = i + 1
+                    break
+        
+        # Insert the content if we found a location
+        if insert_content and insert_index is not None:
+            # Skip any blank lines after the header
+            while insert_index < len(lines) and not lines[insert_index].strip():
+                insert_index += 1
+            
+            # Insert the custom content with proper spacing
+            lines.insert(insert_index, "")
+            lines.insert(insert_index + 1, insert_content)
+            lines.insert(insert_index + 2, "")
+    
+        return '\n'.join(lines)
+
     def html_to_markdown(self, html_str, title=None, source_url=None):
         """
         Converts and tidies an HTML string to Markdown format with optional title and source URL.
@@ -512,9 +584,30 @@ class MdScraper():
             return None
 
         if title:
-            # Add the title at the beginning if it doesn't already exist
-            title_str = f"# {title}\n\n"
-            if not markdown.startswith(title_str):
+            # Check if the markdown already starts with a similar title
+            lines = markdown.strip().split('\n')
+            should_add_title = True
+            
+            if lines and lines[0].startswith('# '):
+                # Extract the existing title text (remove '# ' and strip)
+                existing_title = lines[0][2:].strip()
+                proposed_title = title.strip()
+                
+                # Strip common markdown escapes for comparison
+                def strip_escapes(text):
+                    return text.replace('\\_', '_').replace('\\*', '*').replace('\\#', '#')
+                
+                if strip_escapes(existing_title.lower()) == strip_escapes(proposed_title.lower()):
+                    should_add_title = False
+                    
+                    if self.options['debug']:
+                        print(f"Debug: Skipping duplicate title")
+                        print(f"  Existing: '{existing_title}'")
+                        print(f"  Proposed: '{proposed_title}'")
+            
+            if should_add_title:
+                # Add the title at the beginning
+                title_str = f"# {title}\n\n"
                 markdown = title_str + markdown
 
         # Clean up consecutive newlines
@@ -533,6 +626,9 @@ class MdScraper():
 
         if source_url:
             markdown = f"Source: <{source_url}>\n\n{markdown}"
+
+        # Insert custom markdown after headers if specified
+        markdown = self.insert_custom_markdown(markdown)
 
         return markdown
 
@@ -624,14 +720,7 @@ class MdScraper():
             
         Raises:
             AuthenticationError: If login is required but fails.
-        """
-        # Ensure login is performed if configured
-        if self.options['login_url'] and not self._login_attempted:
-            if self.options['debug']:
-                print("Performing login before fetching content")
-            self.perform_login()  # This will raise AuthenticationError if it fails
-            self._login_attempted = True
-        
+        """        
         soup = self.fetch_webpage(url)
         content = self.extract_page_content(soup)
         if not content:

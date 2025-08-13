@@ -38,10 +38,10 @@ def create_cli_parser():
                         help='Space separated list of page names to ignore, can unix filename pattern matching.')
     parser.add_argument('--exclude-selectors', '-s', nargs='*',
                         help='Space separated list of CSS selectors to exclude')
-    parser.add_argument('--basic-auth-username', metavar='USERNAME',
-                        help='Username for basic authentication')
-    parser.add_argument('--basic-auth-password', metavar='PASSWORD',
-                        help='Password for basic authentication')
+    parser.add_argument('--username', metavar='USERNAME',
+                        help='Username for authentication')
+    parser.add_argument('--password', metavar='PASSWORD',
+                        help='Password for authentication')
     parser.add_argument('--login-url', metavar='URL',
                         help='Login page URL for session-based authentication '
                              '(requires username/password)')

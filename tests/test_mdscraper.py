@@ -135,6 +135,88 @@ class TestMDScraper(unittest.TestCase):
         # Reset MD Scraper options to default
         self.mds.options = self.mds.get_default_options()
 
+    def test_insert_after_title(self):
+        """Test inserting custom markdown after title"""
+        # Sample HTML with title
+        html_with_title = """
+        <html>
+        <body>
+            <h1>Main Title</h1>
+            <p>This is the introduction.</p>
+            <h2>Section</h2>
+            <p>Section content.</p>
+        </body>
+        </html>
+        """
+        
+        # Test 1: Insert [[_TOC_]] after title
+        self.mds.options['insert_after_title'] = '[[_TOC_]]'
+        markdown = self.mds.html_to_markdown(html_with_title, title="Test Document")
+        self.assertIsNotNone(markdown)
+        assert markdown is not None  # Type assertion
+        
+        # Check that [[_TOC_]] appears after the title
+        lines = markdown.split('\n')
+        title_index = None
+        toc_index = None
+        
+        for i, line in enumerate(lines):
+            if line == "# Test Document":
+                title_index = i
+            elif line == "[[_TOC_]]":
+                toc_index = i
+        
+        self.assertIsNotNone(title_index, "Title not found in markdown")
+        self.assertIsNotNone(toc_index, "[[_TOC_]] not found in markdown")
+        self.assertGreater(toc_index, title_index, "[[_TOC_]] should appear after title")
+        
+        # Test 2: Insert custom note after title
+        self.mds.options['insert_after_title'] = '> **Note:** This is auto-generated documentation.'
+        markdown = self.mds.html_to_markdown(html_with_title, title="Test Document")
+        self.assertIsNotNone(markdown)
+        assert markdown is not None  # Type assertion
+        self.assertIn('> **Note:** This is auto-generated documentation.', markdown)
+        
+        # Test 3: No insertion when option is None
+        self.mds.options['insert_after_title'] = None
+        markdown = self.mds.html_to_markdown(html_with_title, title="Test Document")
+        self.assertIsNotNone(markdown)
+        assert markdown is not None  # Type assertion
+        self.assertNotIn('[[_TOC_]]', markdown)
+        self.assertNotIn('> **Note:**', markdown)
+        
+        # Test 4: No insertion when option is empty string
+        self.mds.options['insert_after_title'] = ''
+        markdown = self.mds.html_to_markdown(html_with_title, title="Test Document")
+        self.assertIsNotNone(markdown)
+        assert markdown is not None  # Type assertion
+        self.assertNotIn('[[_TOC_]]', markdown)
+        
+        # Test 5: Insert after h1 in content (when no title parameter is provided)
+        self.mds.options['insert_after_title'] = '[[_TOC_]]'
+        markdown = self.mds.html_to_markdown(html_with_title)  # No title parameter
+        self.assertIsNotNone(markdown)
+        assert markdown is not None  # Type assertion
+        self.assertIn('[[_TOC_]]', markdown)
+        
+        # Verify it appears after the h1 from content
+        lines = markdown.split('\n')
+        main_title_index = None
+        toc_index = None
+        
+        for i, line in enumerate(lines):
+            if line == "# Main Title":
+                main_title_index = i
+            elif line == "[[_TOC_]]":
+                toc_index = i
+        
+        self.assertIsNotNone(main_title_index, "Main Title not found in markdown")
+        self.assertIsNotNone(toc_index, "[[_TOC_]] not found in markdown")
+        self.assertGreater(toc_index, main_title_index, "[[_TOC_]] should appear after Main Title")
+
+        # Reset MD Scraper options to default
+        self.mds.options = self.mds.get_default_options()
+
     @patch.object(MdScraper, 'fetch_content')
     @patch('mdscraper.core.scraper.save_markdown_to_file')
     def test_process_single_url(self, mock_save, mock_fetch):

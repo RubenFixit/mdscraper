@@ -33,28 +33,28 @@ class TestBasicAuthentication(unittest.TestCase):
 
     def test_default_basic_auth_options(self):
         """Test that basic authentication options default to None"""
-        self.assertIsNone(self.mds.options['basic_auth_username'])
-        self.assertIsNone(self.mds.options['basic_auth_password'])
+        self.assertIsNone(self.mds.options['username'])
+        self.assertIsNone(self.mds.options['password'])
 
     def test_set_basic_auth_options(self):
         """Test setting basic authentication options via constructor"""
         mds_with_auth = MdScraper(
-            basic_auth_username='testuser',
-            basic_auth_password='testpass'
+            username='testuser',
+            password='testpass'
         )
         
-        self.assertEqual(mds_with_auth.options['basic_auth_username'], 'testuser')
-        self.assertEqual(mds_with_auth.options['basic_auth_password'], 'testpass')
+        self.assertEqual(mds_with_auth.options['username'], 'testuser')
+        self.assertEqual(mds_with_auth.options['password'], 'testpass')
 
     def test_update_basic_auth_options(self):
         """Test updating basic authentication options after initialization"""
         self.mds.set_options({
-            'basic_auth_username': 'updateduser',
-            'basic_auth_password': 'updatedpass'
+            'username': 'updateduser',
+            'password': 'updatedpass'
         })
         
-        self.assertEqual(self.mds.options['basic_auth_username'], 'updateduser')
-        self.assertEqual(self.mds.options['basic_auth_password'], 'updatedpass')
+        self.assertEqual(self.mds.options['username'], 'updateduser')
+        self.assertEqual(self.mds.options['password'], 'updatedpass')
 
     @patch('requests.Session.get')
     def test_fetch_webpage_with_basic_auth(self, mock_get):
@@ -68,8 +68,8 @@ class TestBasicAuthentication(unittest.TestCase):
         
         # Configure scraper with basic auth
         mds_with_auth = MdScraper(
-            basic_auth_username='testuser',
-            basic_auth_password='testpass'
+            username='testuser',
+            password='testpass'
         )
         
         # Call fetch_webpage
@@ -125,7 +125,7 @@ class TestBasicAuthentication(unittest.TestCase):
         mock_get.return_value = mock_response
         
         # Test with only username
-        mds_username_only = MdScraper(basic_auth_username='testuser')
+        mds_username_only = MdScraper(username='testuser')
         mds_username_only.fetch_webpage('https://example.com')
         
         call_args = mock_get.call_args
@@ -136,7 +136,7 @@ class TestBasicAuthentication(unittest.TestCase):
         mock_get.reset_mock()
         
         # Test with only password
-        mds_password_only = MdScraper(basic_auth_password='testpass')
+        mds_password_only = MdScraper(password='testpass')
         mds_password_only.fetch_webpage('https://example.com')
         
         call_args = mock_get.call_args
@@ -162,8 +162,8 @@ class TestBasicAuthentication(unittest.TestCase):
         # Test with correct authentication
         # Note: Using the standard test credentials from authenticationtest.com
         mds_with_auth = MdScraper(
-            basic_auth_username='user',
-            basic_auth_password='pass',
+            username='user',
+            password='pass',
             debug=False,
             verbose=0
         )
@@ -196,10 +196,10 @@ class TestBasicAuthentication(unittest.TestCase):
         """Test that basic auth options are included in default options"""
         default_options = self.mds.get_default_options()
         
-        self.assertIn('basic_auth_username', default_options)
-        self.assertIn('basic_auth_password', default_options)
-        self.assertIsNone(default_options['basic_auth_username'])
-        self.assertIsNone(default_options['basic_auth_password'])
+        self.assertIn('username', default_options)
+        self.assertIn('password', default_options)
+        self.assertIsNone(default_options['username'])
+        self.assertIsNone(default_options['password'])
 
     def test_authentication_error_raised(self):
         """Test that authentication failures raise AuthenticationError exceptions."""
@@ -207,8 +207,8 @@ class TestBasicAuthentication(unittest.TestCase):
         # Create scraper with invalid credentials
         scraper = MdScraper(
             login_url="https://httpbin.org/basic-auth/user/pass",
-            basic_auth_username="wrong_user",
-            basic_auth_password="wrong_pass",
+            username="wrong_user",
+            password="wrong_pass",
             debug=True
         )
         
@@ -220,8 +220,8 @@ class TestBasicAuthentication(unittest.TestCase):
         
         scraper = MdScraper(
             login_url="https://httpbin.org/basic-auth/user/pass",
-            basic_auth_username="wrong_user",
-            basic_auth_password="wrong_pass",
+            username="wrong_user",
+            password="wrong_pass",
             verbose=1
         )
         
@@ -234,8 +234,8 @@ class TestBasicAuthentication(unittest.TestCase):
         
         scraper = MdScraper(
             login_url="https://httpbin.org/basic-auth/user/pass",
-            basic_auth_username="wrong_user",
-            basic_auth_password="wrong_pass"
+            username="wrong_user",
+            password="wrong_pass"
         )
         
         with self.assertRaises(AuthenticationError):
