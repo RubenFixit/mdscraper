@@ -837,8 +837,9 @@ class MdScraper():
             for anchor in content.find_all('a'):
                 if isinstance(anchor, Tag):
                     # Replace the link with relative link
-                    url = anchor['href']
-                    anchor['href'] = self.get_relative_url_path(url)
+                    url = anchor.get('href')
+                    if url:
+                        anchor['href'] = self.get_relative_url_path(url)
 
     def find_content_by_div_attr(self, soup, attr, filter_list):
         """
