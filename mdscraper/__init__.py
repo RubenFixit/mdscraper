@@ -2,7 +2,7 @@
 MDScraper - A tool to fetch webpages and convert their content to clean Markdown format
 """
 
-__version__ = "0.2.4"
+__version__ = "0.2.5"
 
 from mdscraper.core.scraper import MdScraper
 
