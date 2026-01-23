@@ -253,19 +253,24 @@ class MdScraper():
             - The method uses `urlparse` to parse the URLs and extract their paths.
         """
         if self.options['root_url']:
-            root_url = self.options['root_url']
-            paresd_root = urlparse(root_url)
-            root_path = paresd_root.path
+            try:
+                root_url = self.options['root_url']
+                paresd_root = urlparse(root_url)
+                root_path = paresd_root.path
 
-            parsed_url = urlparse(url)
-            url_path = parsed_url.path
+                parsed_url = urlparse(url)
+                url_path = parsed_url.path
 
-            new_url = url_path.replace(root_path, '')
-            if self.options['debug']:
-                print(f'new_url ({new_url}) = url_path ({url_path}) - root_path({root_path})')
+                new_url = url_path.replace(root_path, '')
+                if self.options['debug']:
+                    print(f'new_url ({new_url}) = url_path ({url_path}) - root_path({root_path})')
 
-            if new_url != url_path:
-                return new_url
+                if new_url != url_path:
+                    return new_url
+            except (ValueError, AttributeError) as e:
+                if self.options['debug']:
+                    print(f'Warning: Failed to parse URL "{url}": {e}')
+                return url
 
         return url
 
